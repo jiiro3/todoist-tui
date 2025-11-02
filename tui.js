@@ -683,15 +683,14 @@ async function createUI() {
           fg: 'cyan'
         }
       },
-      content: `{bold}{cyan-fg}Task Details{/cyan-fg}{/bold}\n\n` +
-               `{bold}Content:{/bold}\n${task.content}\n\n` +
-               `{bold}ID:{/bold} ${task.id}\n\n` +
-               `{bold}Priority:{/bold} {${priority.color}-fg}${priority.name}{/}\n\n` +
-               `{bold}Due Date:{/bold} ${dueDate}\n\n` +
-               `{bold}Labels:{/bold} ${labels}\n\n` +
-               `{bold}Created:{/bold} ${created}\n\n` +
-               `{bold}Status:{/bold} ${task.is_completed ? '{green-fg}Completed{/}' : '{yellow-fg}Active{/}'}\n\n` +
-               (task.description ? `{bold}Description:{/bold}\n${task.description}\n\n` : '') +
+      content: `{bold}{cyan-fg}${task.content}{/cyan-fg}{/bold}\n\n` +
+               (task.description ? `${task.description}\n\n` : '') +
+               `{bold}Priority:{/bold} {${priority.color}-fg}${priority.name}{/}\n` +
+               `{bold}Due Date:{/bold} ${dueDate}\n` +
+               `{bold}Labels:{/bold} ${labels}\n` +
+               `{bold}Status:{/bold} ${task.is_completed ? '{green-fg}Completed{/}' : '{yellow-fg}Active{/}'}\n` +
+               `{bold}Created:{/bold} ${created}\n` +
+               `{bold}ID:{/bold} ${task.id}\n` +
                `{bold}URL:{/bold} ${task.url}\n\n` +
                `{dim}Press Esc or Tab to close{/}`,
       tags: true
@@ -715,7 +714,7 @@ async function createUI() {
       left: 'center',
       top: 'center',
       width: '80%',
-      height: 18,
+      height: 10,
       border: 'line',
       style: {
         border: {
@@ -728,20 +727,13 @@ async function createUI() {
       parent: form,
       top: 0,
       left: 1,
-      content: '{bold}{green-fg}Add New Task{/green-fg}{/bold}',
+      content: '{bold}{green-fg}Add Task{/green-fg}{/bold} {dim}(p:1-4 for priority, @label for tags){/}',
       tags: true
-    });
-
-    blessed.text({
-      parent: form,
-      top: 2,
-      left: 1,
-      content: 'Task content:'
     });
 
     const contentInput = blessed.textbox({
       parent: form,
-      top: 3,
+      top: 2,
       left: 1,
       width: '100%-2',
       height: 3,
@@ -751,61 +743,40 @@ async function createUI() {
 
     blessed.text({
       parent: form,
-      top: 7,
+      bottom: 2,
       left: 1,
-      content: 'Priority (1-4, optional):'
-    });
-
-    const priorityInput = blessed.textbox({
-      parent: form,
-      top: 8,
-      left: 1,
-      width: 20,
-      height: 3,
-      border: 'line',
-      inputOnFocus: true
-    });
-
-    const addBtn = blessed.button({
-      parent: form,
-      bottom: 1,
-      left: 'center',
-      shrink: true,
-      padding: {
-        left: 2,
-        right: 2
-      },
-      content: 'Add Task (Ctrl+Enter)',
-      style: {
-        bg: 'green',
-        fg: 'white',
-        focus: {
-          bg: 'lightgreen'
-        }
-      }
-    });
-
-    const cancelBtn = blessed.button({
-      parent: form,
-      bottom: 1,
-      right: 5,
-      shrink: true,
-      padding: {
-        left: 2,
-        right: 2
-      },
-      content: 'Cancel (Esc)',
-      style: {
-        bg: 'red',
-        fg: 'white',
-        focus: {
-          bg: 'lightred'
-        }
-      }
+      content: '{dim}Enter to add • Esc to cancel{/}',
+      tags: true
     });
 
     function createTask() {
-      const content = contentInput.getValue().trim();
+      const input = contentInput.getValue().trim();
+      if (!input) {
+        statusBar.setContent('{red-fg}Error: Task content cannot be empty{/}');
+        screen.render();
+        setTimeout(() => updateStatusBar(), 2000);
+        return;
+      }
+
+      // Parse input for commands
+      let content = input;
+      let priority = '1';
+      let labels = [];
+
+      // Extract priority (p:1, p:2, p:3, p:4)
+      const priorityMatch = content.match(/p:([1-4])/);
+      if (priorityMatch) {
+        priority = priorityMatch[1];
+        content = content.replace(/p:[1-4]/g, '').trim();
+      }
+
+      // Extract labels (@label1 @label2)
+      const labelMatches = content.match(/@(\w+)/g);
+      if (labelMatches) {
+        labels = labelMatches.map(l => l.substring(1));
+        content = content.replace(/@\w+/g, '').trim();
+      }
+
       if (!content) {
         statusBar.setContent('{red-fg}Error: Task content cannot be empty{/}');
         screen.render();
@@ -813,43 +784,53 @@ async function createUI() {
         return;
       }
 
-      const priority = priorityInput.getValue().trim() || '1';
+      // Build command
+      let cmd = `./add.sh "${content}" --priority ${priority}`;
+      if (labels.length > 0) {
+        cmd += ` --labels "${labels.join(',')}"`;
+      }
 
-      // Use add.sh to create the task
-      statusBar.setContent('{yellow-fg}Creating task...{/}');
+      // Close form immediately
+      form.destroy();
+      taskList.focus();
+
+      // Add task optimistically to the list
+      const newTask = {
+        id: 'temp-' + Date.now(),
+        content: content,
+        priority: parseInt(priority),
+        labels: labels,
+        is_completed: false,
+        description: '',
+        due: null,
+        created_at: new Date().toISOString(),
+        url: '',
+        project_id: config.project
+      };
+
+      tasks.unshift(newTask); // Add to top of list
+      sortTasks();
+      refreshTaskList();
+      taskList.select(0);
+      updateStatusBar();
+
+      statusBar.setContent('{green-fg}✓ Task added!{/}');
       screen.render();
 
+      // Create task in background via API
       setTimeout(() => {
-        const result = executeCommand(`./add.sh "${content}" --priority ${priority}`);
-
-        // Fetch the newly created task and add to list
-        // For now, just refresh by re-fetching all tasks
-        form.destroy();
-        taskList.focus();
-        statusBar.setContent('{green-fg}✓ Task added! Refresh to see it.{/}');
-        screen.render();
-
-        setTimeout(() => {
-          updateStatusBar();
-        }, 2000);
+        const result = executeCommand(cmd);
+        // Optionally: fetch the real task ID and update the temp task
       }, 100);
     }
 
-    addBtn.on('press', createTask);
-
-    cancelBtn.on('press', function() {
-      form.destroy();
-      taskList.focus();
-      screen.render();
-    });
+    contentInput.key(['enter'], createTask);
 
     form.key(['escape'], function() {
       form.destroy();
       taskList.focus();
       screen.render();
     });
-
-    contentInput.key(['C-enter'], createTask);
 
     screen.render();
     contentInput.focus();
