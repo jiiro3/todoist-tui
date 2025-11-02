@@ -132,19 +132,25 @@ function fetchTasks(taskIds = null) {
   try {
     // If specific task IDs provided, fetch only those
     if (taskIds && taskIds.length > 0) {
-      const fetchedTasks = [];
-      for (const taskId of taskIds) {
-        const taskCmd = `curl -s -H "Authorization: Bearer ${apiToken}" "https://api.todoist.com/rest/v2/tasks/${taskId}"`;
-        const taskJson = execSync(taskCmd, { encoding: 'utf8' });
-        try {
-          const task = JSON.parse(taskJson);
-          if (task.id) {
-            fetchedTasks.push(task);
-          }
-        } catch (e) {
-          // Skip invalid tasks
-        }
+      // Fetch ALL tasks from project in ONE API call, then filter locally (much faster!)
+      const projectsCmd = `curl -s -H "Authorization: Bearer ${apiToken}" "https://api.todoist.com/rest/v2/projects"`;
+      const projectsJson = execSync(projectsCmd, { encoding: 'utf8' });
+      const projects = JSON.parse(projectsJson);
+      const project = projects.find(p => p.name.toLowerCase() === config.project.toLowerCase());
+
+      if (!project) {
+        throw new Error(`Project "${config.project}" not found`);
       }
+
+      // Get ALL tasks from project
+      const tasksCmd = `curl -s -H "Authorization: Bearer ${apiToken}" "https://api.todoist.com/rest/v2/tasks?project_id=${project.id}"`;
+      const tasksJson = execSync(tasksCmd, { encoding: 'utf8' });
+      const allTasks = JSON.parse(tasksJson);
+
+      // Filter to only the task IDs we want
+      const taskIdSet = new Set(taskIds);
+      const fetchedTasks = allTasks.filter(task => taskIdSet.has(task.id.toString()));
+
       return fetchedTasks;
     }
 

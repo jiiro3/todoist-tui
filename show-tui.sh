@@ -74,7 +74,7 @@ search_tasks() {
   local query="$1"
 
   # Search for the exact phrase
-  "$SCRIPT_DIR/search.sh" "$query" 100 2>/dev/null | grep 'ID:' | awk '{print $2}'
+  "$SCRIPT_DIR/search.sh" "$query" 100 2>/dev/null | grep 'ID:' | awk '{print $2}' | xargs
 }
 
 # Determine what to show
