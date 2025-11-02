@@ -1,0 +1,39 @@
+{
+  "name": "todoist-tui",
+  "version": "1.0.0",
+  "description": "A fast, keyboard-driven Terminal User Interface for managing Todoist tasks",
+  "main": "tui.js",
+  "bin": {
+    "todoist-tui": "./show-tui.sh"
+  },
+  "scripts": {
+    "start": "./show-tui.sh",
+    "install-global": "sudo ln -sf $(pwd)/show-tui.sh /usr/local/bin/todo"
+  },
+  "keywords": [
+    "todoist",
+    "tui",
+    "terminal",
+    "cli",
+    "tasks",
+    "productivity",
+    "blessed",
+    "todo"
+  ],
+  "author": "Jermaine Oliver",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/todoist-tui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/todoist-tui/issues"
+  },
+  "homepage": "https://github.com/yourusername/todoist-tui#readme",
+  "dependencies": {
+    "blessed": "^0.1.81"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
