@@ -871,6 +871,8 @@ async function createUI() {
 
   // Filter (/)
   taskList.key(['/'], function() {
+    let filterActive = true; // Track if filter is still active
+
     const filterBox = blessed.box({
       parent: screen,
       bottom: 3,
@@ -909,23 +911,32 @@ async function createUI() {
 
     // Live filtering as user types
     filterInput.on('keypress', function(ch, key) {
+      // Skip special keys like escape and enter
+      if (key && (key.name === 'escape' || key.name === 'enter' || key.name === 'return')) {
+        return;
+      }
+
       // Small delay to get the updated value
       setTimeout(() => {
+        if (!filterActive) return; // Don't apply if filter was closed
         const filterText = filterInput.getValue();
         applyFilter(filterText);
       }, 10);
     });
 
     filterInput.key(['enter'], function() {
+      filterActive = false;
       filterBox.destroy();
       taskList.focus();
       screen.render();
     });
 
     filterInput.key(['escape'], function() {
+      filterActive = false;
+      applyFilter(''); // Clear filter first
       filterBox.destroy();
       taskList.focus();
-      applyFilter(''); // Clear filter
+      screen.render();
     });
 
     screen.render();
