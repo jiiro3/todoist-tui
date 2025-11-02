@@ -286,10 +286,41 @@ async function createUI() {
     if (!currentFilter) {
       tasks = [...allTasks];
     } else {
-      tasks = allTasks.filter(task =>
-        task.content.toLowerCase().includes(currentFilter) ||
-        (task.description && task.description.toLowerCase().includes(currentFilter))
-      );
+      tasks = allTasks.filter(task => {
+        const searchText = currentFilter;
+
+        // Check for priority filter (p:1, p:2, p:3, p:4)
+        const priorityMatch = searchText.match(/p:([1-4])/);
+        if (priorityMatch) {
+          const priorityNum = parseInt(priorityMatch[1]);
+          if (task.priority !== priorityNum) return false;
+          // Remove priority from search text for further filtering
+          const remainingSearch = searchText.replace(/p:[1-4]/g, '').trim();
+          if (!remainingSearch) return true; // Only priority filter
+        }
+
+        // Check for label filter (@labelname)
+        const labelMatches = searchText.match(/@(\w+)/g);
+        if (labelMatches) {
+          const searchLabels = labelMatches.map(l => l.substring(1).toLowerCase());
+          const hasAllLabels = searchLabels.every(searchLabel =>
+            task.labels && task.labels.some(taskLabel => taskLabel.toLowerCase().includes(searchLabel))
+          );
+          if (!hasAllLabels) return false;
+          // Remove labels from search text for further filtering
+          const remainingSearch = searchText.replace(/@\w+/g, '').trim();
+          if (!remainingSearch) return true; // Only label filter
+        }
+
+        // Remove special filters for general text search
+        const generalSearch = searchText.replace(/p:[1-4]/g, '').replace(/@\w+/g, '').trim();
+        if (!generalSearch) return true; // Only had special filters
+
+        // General text search in content, description, and labels
+        return task.content.toLowerCase().includes(generalSearch) ||
+               (task.description && task.description.toLowerCase().includes(generalSearch)) ||
+               (task.labels && task.labels.some(label => label.toLowerCase().includes(generalSearch)));
+      });
     }
     sortTasks();
     refreshTaskList();
@@ -442,7 +473,7 @@ async function createUI() {
     setTimeout(() => updateStatusBar(), 1000);
   });
 
-  // Edit task content (e)
+  // Edit task (e)
   taskList.key(['e'], function() {
     const task = tasks[taskList.selected];
     if (!task) return;
@@ -453,7 +484,7 @@ async function createUI() {
       left: 'center',
       top: 'center',
       width: '80%',
-      height: 12,
+      height: 10,
       border: 'line',
       style: {
         border: {
@@ -462,11 +493,21 @@ async function createUI() {
       }
     });
 
+    // Build initial value with current task data
+    let initialValue = task.content;
+    if (task.priority > 1) {
+      initialValue += ` p:${task.priority}`;
+    }
+    if (task.labels && task.labels.length > 0) {
+      initialValue += ' ' + task.labels.map(l => '@' + l).join(' ');
+    }
+
     blessed.text({
       parent: form,
       top: 0,
       left: 1,
-      content: 'Edit Task Content:'
+      content: '{bold}{cyan-fg}Edit Task{/cyan-fg}{/bold} {dim}(p:1-4 for priority, @label for tags){/}',
+      tags: true
     });
 
     const input = blessed.textbox({
@@ -477,77 +518,120 @@ async function createUI() {
       height: 3,
       border: 'line',
       inputOnFocus: true,
-      value: task.content
+      value: initialValue
     });
 
-    const saveBtn = blessed.button({
+    blessed.text({
       parent: form,
-      bottom: 1,
-      left: 'center',
-      shrink: true,
-      padding: {
-        left: 2,
-        right: 2
-      },
-      content: 'Save (Enter)',
-      style: {
-        bg: 'green',
-        fg: 'white',
-        focus: {
-          bg: 'lightgreen'
-        }
-      }
+      bottom: 2,
+      left: 1,
+      content: '{dim}Enter to save • Esc to cancel{/}',
+      tags: true
     });
 
-    const cancelBtn = blessed.button({
-      parent: form,
-      bottom: 1,
-      right: 5,
-      shrink: true,
-      padding: {
-        left: 2,
-        right: 2
-      },
-      content: 'Cancel (Esc)',
-      style: {
-        bg: 'red',
-        fg: 'white',
-        focus: {
-          bg: 'lightred'
-        }
+    function saveTask() {
+      const inputText = input.getValue().trim();
+      if (!inputText) {
+        statusBar.setContent('{red-fg}Error: Task content cannot be empty{/}');
+        screen.render();
+        setTimeout(() => updateStatusBar(), 2000);
+        return;
       }
-    });
 
-    saveBtn.on('press', function() {
-      const newContent = input.getValue();
-      updateTask(task.id, 'content', newContent);
-      task.content = newContent;
+      // Parse input for commands
+      let content = inputText;
+      let priority = task.priority; // Keep existing priority
+      let labels = task.labels ? [...task.labels] : []; // Keep existing labels
+
+      // Extract priority (p:1, p:2, p:3, p:4)
+      const priorityMatch = content.match(/p:([1-4])/);
+      if (priorityMatch) {
+        priority = parseInt(priorityMatch[1]);
+        content = content.replace(/p:[1-4]/g, '').trim();
+      }
+
+      // Extract labels (@label1 @label2)
+      const labelMatches = content.match(/@(\w+)/g);
+      if (labelMatches) {
+        labels = labelMatches.map(l => l.substring(1));
+        content = content.replace(/@\w+/g, '').trim();
+      }
+
+      if (!content) {
+        statusBar.setContent('{red-fg}Error: Task content cannot be empty{/}');
+        screen.render();
+        setTimeout(() => updateStatusBar(), 2000);
+        return;
+      }
+
+      // Close form immediately
       form.destroy();
+      taskList.focus();
+
+      // Update task optimistically
+      const oldContent = task.content;
+      const oldPriority = task.priority;
+      const oldLabels = task.labels;
+
+      task.content = content;
+      task.priority = priority;
+      task.labels = labels;
+
+      // Also update in allTasks to keep filter working
+      const allTasksIndex = allTasks.findIndex(t => t.id === task.id);
+      if (allTasksIndex !== -1) {
+        allTasks[allTasksIndex].content = content;
+        allTasks[allTasksIndex].priority = priority;
+        allTasks[allTasksIndex].labels = labels;
+      }
+
       refreshTaskList();
       updateStatusBar();
-      taskList.focus();
-    });
-
-    cancelBtn.on('press', function() {
-      form.destroy();
-      taskList.focus();
+      statusBar.setContent('{green-fg}✓ Task updated!{/}');
       screen.render();
-    });
+
+      // Update via API in background
+      setTimeout(() => {
+        const fs = require('fs');
+        const envPath = path.join(SCRIPT_DIR, '.env');
+        let apiToken = process.env.TODOIST_API_TOKEN;
+        if (!apiToken && fs.existsSync(envPath)) {
+          const envContent = fs.readFileSync(envPath, 'utf8');
+          const match = envContent.match(/TODOIST_API_TOKEN=(.+)/);
+          if (match) {
+            apiToken = match[1].trim();
+          }
+        }
+
+        if (!apiToken) return;
+
+        // Build update payload
+        const updates = {};
+        if (content !== oldContent) {
+          updates.content = content;
+        }
+        if (priority !== oldPriority) {
+          updates.priority = priority;
+        }
+        if (JSON.stringify(labels) !== JSON.stringify(oldLabels)) {
+          updates.labels = labels;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          const payload = JSON.stringify(updates);
+          // Escape single quotes for shell
+          const escapedPayload = payload.replace(/'/g, "'\\''");
+          executeCommand(`curl -s -X POST -H "Authorization: Bearer ${apiToken}" -H "Content-Type: application/json" -d '${escapedPayload}' "https://api.todoist.com/rest/v2/tasks/${task.id}"`);
+        }
+      }, 100);
+    }
+
+    input.key(['enter'], saveTask);
 
     form.key(['escape'], function() {
       form.destroy();
       taskList.focus();
       screen.render();
-    });
-
-    input.key(['enter'], function() {
-      const newContent = input.getValue();
-      updateTask(task.id, 'content', newContent);
-      task.content = newContent;
-      form.destroy();
-      refreshTaskList();
-      updateStatusBar();
-      taskList.focus();
     });
 
     screen.render();
