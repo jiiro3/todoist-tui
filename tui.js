@@ -25,6 +25,8 @@ let config = {
 };
 
 let tasks = [];
+let allTasks = []; // Store all tasks for filtering
+let currentFilter = '';
 let selectedIndex = 0;
 
 // Load config from file
@@ -248,6 +250,9 @@ async function createUI() {
 
     // Sort tasks after fetching
     sortTasks();
+
+    // Store all tasks for filtering
+    allTasks = [...tasks];
   } catch (e) {
     console.error('Error:', e.message);
     process.exit(1);
@@ -265,7 +270,7 @@ async function createUI() {
     width: '100%',
     height: 3,
     content: '{bold}Todoist Tasks{/bold} - {yellow-fg}' + config.project + '{/}' + (config.sortBy !== 'none' ? ' (sorted: ' + config.sortBy + ')' : '') + '\n' +
-             '{cyan-fg}↑↓{/cyan-fg} Navigate  {cyan-fg}Enter{/cyan-fg} Toggle  {cyan-fg}Tab{/cyan-fg} Details  {cyan-fg}s{/cyan-fg} Sort  {cyan-fg}a{/cyan-fg} Add  {cyan-fg}e{/cyan-fg} Edit  {cyan-fg},{/cyan-fg} Settings  {cyan-fg}q{/cyan-fg} Quit',
+             '{cyan-fg}↑↓{/cyan-fg} Navigate  {cyan-fg}Enter{/cyan-fg} Toggle  {cyan-fg}Tab{/cyan-fg} Details  {cyan-fg}/{/cyan-fg} Filter  {cyan-fg}a{/cyan-fg} Add  {cyan-fg}e{/cyan-fg} Edit  {cyan-fg}s{/cyan-fg} Sort  {cyan-fg}q{/cyan-fg} Quit',
     tags: true,
     style: {
       fg: 'white',
@@ -274,6 +279,33 @@ async function createUI() {
       }
     }
   });
+
+  // Filter function
+  function applyFilter(filterText) {
+    currentFilter = filterText.toLowerCase();
+    if (!currentFilter) {
+      tasks = [...allTasks];
+    } else {
+      tasks = allTasks.filter(task =>
+        task.content.toLowerCase().includes(currentFilter) ||
+        (task.description && task.description.toLowerCase().includes(currentFilter))
+      );
+    }
+    sortTasks();
+    refreshTaskList();
+    if (tasks.length > 0) {
+      taskList.select(0);
+      updateStatusBar();
+    }
+
+    // Update header to show filter status
+    const filterStatus = currentFilter ? ` {magenta-fg}[Filter: ${currentFilter}]{/}` : '';
+    header.setContent(
+      '{bold}Todoist Tasks{/bold} - {yellow-fg}' + config.project + '{/}' + (config.sortBy !== 'none' ? ' (sorted: ' + config.sortBy + ')' : '') + filterStatus + '\n' +
+      '{cyan-fg}↑↓{/cyan-fg} Navigate  {cyan-fg}Enter{/cyan-fg} Toggle  {cyan-fg}Tab{/cyan-fg} Details  {cyan-fg}/{/cyan-fg} Filter  {cyan-fg}a{/cyan-fg} Add  {cyan-fg}e{/cyan-fg} Edit  {cyan-fg}s{/cyan-fg} Sort  {cyan-fg}q{/cyan-fg} Quit'
+    );
+    screen.render();
+  }
 
   // Task list
   const taskList = blessed.list({
@@ -809,6 +841,7 @@ async function createUI() {
       };
 
       tasks.unshift(newTask); // Add to top of list
+      allTasks.unshift(newTask); // Also add to allTasks for filtering
       sortTasks();
       refreshTaskList();
       taskList.select(0);
@@ -834,6 +867,69 @@ async function createUI() {
 
     screen.render();
     contentInput.focus();
+  });
+
+  // Filter (/)
+  taskList.key(['/'], function() {
+    const filterBox = blessed.box({
+      parent: screen,
+      bottom: 3,
+      left: 0,
+      width: '100%',
+      height: 3,
+      border: 'line',
+      style: {
+        border: {
+          fg: 'magenta'
+        }
+      }
+    });
+
+    const filterLabel = blessed.text({
+      parent: filterBox,
+      top: 0,
+      left: 1,
+      content: '{magenta-fg}Filter:{/} ',
+      tags: true
+    });
+
+    const filterInput = blessed.textbox({
+      parent: filterBox,
+      top: 0,
+      left: 9,
+      width: '100%-10',
+      height: 1,
+      inputOnFocus: true,
+      value: currentFilter,
+      style: {
+        fg: 'white',
+        bg: 'black'
+      }
+    });
+
+    // Live filtering as user types
+    filterInput.on('keypress', function(ch, key) {
+      // Small delay to get the updated value
+      setTimeout(() => {
+        const filterText = filterInput.getValue();
+        applyFilter(filterText);
+      }, 10);
+    });
+
+    filterInput.key(['enter'], function() {
+      filterBox.destroy();
+      taskList.focus();
+      screen.render();
+    });
+
+    filterInput.key(['escape'], function() {
+      filterBox.destroy();
+      taskList.focus();
+      applyFilter(''); // Clear filter
+    });
+
+    screen.render();
+    filterInput.focus();
   });
 
   // Sort (s)
